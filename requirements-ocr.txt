@@ -1,0 +1,11 @@
+# Optional OCR dependencies. These install into a SEPARATE Python 3.13 venv
+# (.venv-ocr/), NOT the core Python 3.14 environment: paddlepaddle has no 3.14
+# wheel, so OCR runs in a subprocess (see SETUP in README / capture_text).
+#
+#   py -3.13 -m venv .venv-ocr
+#   .venv-ocr/Scripts/python -m pip install -r requirements-ocr.txt
+#
+# The venv's own numpy/opencv are isolated from the core's, so paddle's numpy pin
+# can't conflict with the core's numpy 2.x -- the whole reason OCR is a subprocess.
+paddlepaddle>=3.3
+paddleocr>=3.7

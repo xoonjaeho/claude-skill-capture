@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.venv-ocr/
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.tmp
+*.tmp.*
+
+# Capture artifacts - never commit captured frames
+*.png
+*.jpg
+*.jpeg
+*.mp4
+captures/
+
+# OCR models vendored at install time, not committed
+scripts/ocr_models/
+
+# Local-only docs - synced scaffolds (.claude/rules/) and internal docs, never committed
+/.claude/
+/docs/

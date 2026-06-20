@@ -1,0 +1,5 @@
+# Core capture dependencies. Tested on Python 3.14 (CPython, Windows).
+# OCR is optional and runs in a separate Python 3.13 venv -- see requirements-ocr.txt.
+pywin32>=311
+numpy>=2.1
+opencv-python>=4.13
