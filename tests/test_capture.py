@@ -346,9 +346,10 @@ def test_wait_for_window_returns_present_window():
 
 
 def test_record_writes_mp4_with_frame_count(tmp_path):
-    # --record must produce a playable mp4 whose frame count matches the stream
-    # length: catches a broken size-lock (VideoWriter rejects mismatched frames) or
-    # a skipped write.
+    # --record must produce a playable mp4 with at least the captured-frame count.
+    # Real-time padding only ever duplicates frames, never drops them, so a count below
+    # the stream length means a broken size-lock (VideoWriter rejects mismatched frames)
+    # or a skipped write.
     title = "capture-probe-rec-8e1d"
     out = str(tmp_path / "rec.mp4")
     args = argparse.Namespace(
@@ -360,7 +361,22 @@ def test_record_writes_mp4_with_frame_count(tmp_path):
     reader = cv2.VideoCapture(out)
     frame_count = int(reader.get(cv2.CAP_PROP_FRAME_COUNT))
     reader.release()
-    assert frame_count == 5
+    assert frame_count >= 5
+
+
+def test_frames_due_pads_lag_to_realtime():
+    # Real-time recording: when PrintWindow lags, the current frame is written enough
+    # times to fill the wall-clock gap, so the mp4's frame count tracks elapsed*fps and
+    # the video plays at real speed instead of fast.
+    fps = 20.0
+    # First frame at t=0: exactly one write, nothing to pad yet.
+    assert capture._frames_due(0.0, fps, 0) == 1
+    # Keeping up (one interval elapsed, one frame already written): still one write.
+    assert capture._frames_due(0.05, fps, 1) == 1
+    # A 0.3s stall after 2 frames written -> 6 frames due by now -> pad 4 duplicates.
+    assert capture._frames_due(0.30, fps, 2) == 4
+    # Never drops below one even if somehow already ahead of the clock.
+    assert capture._frames_due(0.0, fps, 10) == 1
 
 
 def test_capture_stream_count_zero_yields_nothing():

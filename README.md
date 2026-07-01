@@ -113,7 +113,7 @@ needed — `SKILL.md` tells the agent how to invoke the CLI.
 | `--loop FPS` | stream a non-minimized window at ~FPS frames/sec (focus-safe) |
 | `--count N` | stop after N frames (default 30, unless `--duration` is given) |
 | `--duration S` | stop after S seconds |
-| `--record PATH` | record the stream to an mp4 at the --loop fps (plays fast if capture can't keep up) |
+| `--record PATH` | record the stream to a real-time mp4 at the --loop fps (duplicates frames to stay real-time when capture can't keep up) |
 
 Streaming works only on a non-minimized window (it is never moved or activated; a
 minimized target is refused). Throughput is PrintWindow-bound and size-dependent —

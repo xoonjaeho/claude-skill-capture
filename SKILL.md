@@ -74,12 +74,14 @@ python ~/.claude/skills/capture/scripts/capture.py [options]
 | `--loop FPS` | stream a **non-minimized** window at ~FPS frames/sec (focus-safe) |
 | `--count N` | stop after N frames (default 30, unless `--duration` is given) |
 | `--duration S` | stop after S seconds |
-| `--record PATH` | record the stream to an mp4 at the --loop fps (plays fast if capture can't keep up) |
+| `--record PATH` | record the stream to a real-time mp4 at the --loop fps (duplicates frames to stay real-time when capture can't keep up) |
 
 Streaming only works on a non-minimized window (it never moves or activates it). A
 minimized target is refused — restore it first. Throughput is PrintWindow-bound and
-size-dependent (~15 fps for a ~2000×2000 window, faster for smaller ones).
-`--record` requires `--loop` and cannot be combined with `--out`/`--no-save`.
+size-dependent (~15 fps for a ~2000×2000 window, faster for smaller ones); if the
+requested fps exceeds that, `--record` pads with duplicate frames so the mp4 still
+plays in real time. `--record` requires `--loop` and cannot be combined with
+`--out`/`--no-save`.
 
 ### Text extraction (OCR, optional)
 

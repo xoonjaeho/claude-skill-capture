@@ -595,6 +595,18 @@ def _resolve_or_wait(args: argparse.Namespace) -> WindowInfo:
     return resolve_target(title=args.title, hwnd=args.hwnd, pid=args.pid, exact=args.exact)
 
 
+def _frames_due(elapsed: float, fps: float, written: int) -> int:
+    """Number of times to write the current frame to keep the recorded mp4's playback
+    clock aligned with wall-clock time.
+
+    The output is constant-fps, but PrintWindow can't always sustain ``fps`` on a large
+    window. Padding the lag with duplicate frames makes ``written`` track
+    ``round(elapsed * fps)``, so the mp4 plays back in real time instead of fast. Always
+    at least 1 so a captured frame is never dropped.
+    """
+    return max(1, round(elapsed * fps) - written)
+
+
 def _run_stream(args: argparse.Namespace) -> int:
     enable_dpi_awareness()
     try:
@@ -619,6 +631,8 @@ def _run_stream(args: argparse.Namespace) -> int:
 
     writer = None
     size = None
+    rec_start = None
+    written = 0
     frames = 0
     start = time.monotonic()
     try:
@@ -637,10 +651,18 @@ def _run_stream(args: argparse.Namespace) -> int:
                     if not writer.isOpened():
                         sys.stderr.write(f"capture: cannot open {args.record} for writing\n")
                         return 1
+                if rec_start is None:
+                    rec_start = time.monotonic()  # anchor at the first written frame
                 # VideoWriter needs a constant size; resize anything that differs.
                 if (frame.shape[1], frame.shape[0]) != size:
                     frame = cv2.resize(frame, size)
-                writer.write(frame)
+                # Pad a slow capture up to real time: duplicate the current frame enough
+                # to reach its wall-clock position, so the constant-fps mp4 plays back at
+                # real speed rather than fast when PrintWindow lags behind --loop fps.
+                reps = _frames_due(time.monotonic() - rec_start, args.loop, written)
+                for _ in range(reps):
+                    writer.write(frame)
+                written += reps
             elif save:
                 if not cv2.imwrite(f"{stem}_{frames:04d}{ext}", frame):
                     sys.stderr.write(f"capture: failed to write {stem}_{frames:04d}{ext}\n")
