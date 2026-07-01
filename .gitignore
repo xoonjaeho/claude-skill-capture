@@ -9,6 +9,7 @@ __pycache__/
 .venv/
 venv/
 .venv-ocr/
+.venv-wgc/
 .idea/
 .vscode/
 *.swp

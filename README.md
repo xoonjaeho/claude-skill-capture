@@ -113,12 +113,24 @@ needed — `SKILL.md` tells the agent how to invoke the CLI.
 | `--loop FPS` | stream a non-minimized window at ~FPS frames/sec (focus-safe) |
 | `--count N` | stop after N frames (default 30, unless `--duration` is given) |
 | `--duration S` | stop after S seconds |
-| `--record PATH` | record the stream to a real-time mp4 at the --loop fps (duplicates frames to stay real-time when capture can't keep up) |
+| `--record PATH` | record a real-time mp4 at the --loop fps; **WGC backend** if installed (occlusion-safe GPU capture at paint-rate), else PrintWindow + mp4v |
 
 Streaming works only on a non-minimized window (it is never moved or activated; a
-minimized target is refused). Throughput is PrintWindow-bound and size-dependent —
-about **15 fps for a ~2000×2000 window** on the reference machine, faster for smaller
-windows.
+minimized target is refused). The plain `--loop` stream is PrintWindow-bound and
+size-dependent — about **15 fps for a ~2000×2000 window** on the reference machine,
+faster for smaller windows.
+
+`--record` prefers the optional **WGC backend** (`windows-capture`): it reads the window's
+own compositor surface, so an occluded window still records, capturing on the GPU at the
+window's paint rate rather than PrintWindow's ~15 fps ceiling. Frames are sampled at
+`--loop` fps and encoded to mp4 (mp4v), so playback is real-time. Without it installed,
+`--record` falls back to PrintWindow + mp4v. It runs in a dedicated venv (`.venv-wgc/`, like
+OCR) so it never touches the core interpreter — set it up once (optional):
+
+```
+py -3.14 -m venv .venv-wgc
+.venv-wgc/Scripts/python -m pip install -r requirements-wgc.txt
+```
 
 ### Minimized handling (opt-in)
 

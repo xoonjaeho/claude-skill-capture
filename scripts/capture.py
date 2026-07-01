@@ -689,6 +689,50 @@ def _run_stream(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_record_wgc(args: argparse.Namespace, wgc_record) -> int:
+    """Record via the WGC backend: resolve the target, refuse minimized, delegate.
+
+    The already-resolved hwnd is passed straight to WGC's window_hwnd, so recording
+    targets exactly the disambiguated window (no title re-matching). Exit codes mirror
+    the stream path: 1 for resolution failure, 3 for a minimized target.
+    """
+    enable_dpi_awareness()
+    try:
+        info = _resolve_or_wait(args)
+    except windows.AmbiguousTarget as exc:
+        sys.stderr.write(f"capture: {_ambiguous_message(exc.matches)}\n")
+        return 1
+    except windows.TargetNotFound as exc:
+        sys.stderr.write(f"capture: {exc}\n")
+        return 1
+    if windows.window_state(info.hwnd) == WindowState.MINIMIZED:
+        sys.stderr.write(
+            f"capture: {info.title!r} is minimized; restore it before recording "
+            "(WGC cannot capture a minimized window)\n"
+        )
+        return 3
+    count = args.count if args.count is not None else (None if args.duration else 30)
+    try:
+        n = wgc_record.record_window(
+            info.hwnd,
+            args.record,
+            fps=args.loop,
+            duration=args.duration,
+            count=count,
+            region=args.region,
+        )
+    except wgc_record.WgcError as exc:
+        sys.stderr.write(f"capture: {exc}\n")
+        return 1
+    if n == 0:
+        # No frame written -> no file. Report honestly instead of claiming a recording,
+        # mirroring the stream path (which omits "recorded" for a zero-frame run).
+        sys.stderr.write("capture: no frames recorded (nothing captured)\n")
+        return 1
+    print(f"recorded {args.record}  {n} frames @ {args.loop:.0f}fps (WGC)")
+    return 0
+
+
 def _configure_stdio() -> None:
     """Make stdout/stderr tolerate any window title.
 
@@ -816,6 +860,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--loop FPS must be positive")
 
     if args.loop is not None:
+        if args.record:
+            import wgc_record
+            if wgc_record.available():
+                return _run_record_wgc(args, wgc_record)
+            sys.stderr.write(
+                "capture: windows-capture not installed; recording via PrintWindow+mp4v "
+                "(lower fps, no GPU-window path). pip install -r requirements-wgc.txt "
+                "for the WGC backend.\n"
+            )
         return _run_stream(args)
 
     try:

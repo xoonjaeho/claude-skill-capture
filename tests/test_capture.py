@@ -379,6 +379,212 @@ def test_frames_due_pads_lag_to_realtime():
     assert capture._frames_due(0.0, fps, 10) == 1
 
 
+import wgc_record  # noqa: E402
+
+requires_wgc = pytest.mark.skipif(
+    not wgc_record.available(), reason="windows-capture (WGC backend) not installed"
+)
+
+
+@requires_wgc
+def test_wgc_record_captures_occluded_target(tmp_path):
+    # The core invariant: WGC records the TARGET window's own pixels even when it is fully
+    # covered. The screen-grab loop first confirms the red cover actually occludes the
+    # green probe, so the green assertion genuinely proves occlusion-independence -- a
+    # screen-read regression would capture the red cover and fail.
+    out = str(tmp_path / "occ.mp4")
+    with probe_window("#00ff00", "wgc-occ-green-4e8a", size="300x300+350+300") as (root, info):
+        cover = tk.Toplevel(root)
+        cover.geometry("380x360+320+280")  # fully blankets the probe
+        cover.configure(bg="#ff0000")
+        cover.overrideredirect(True)
+        cover.attributes("-topmost", True)
+        cover.lift()
+        vis_b = vis_r = 0.0
+        for _ in range(60):
+            root.update_idletasks()
+            root.update()
+            time.sleep(0.02)
+            vis_b, _, vis_r = _center_bgr(_screen_grab(info.rect))
+            if vis_r > 150 and vis_b < 90:
+                break
+        else:
+            pytest.fail(f"cover never occluded the probe; B={vis_b:.0f} R={vis_r:.0f}")
+        try:
+            n = wgc_record.record_window(info.hwnd, out, fps=10, count=5)
+        finally:
+            cover.destroy()
+    assert n >= 3
+    reader = cv2.VideoCapture(out)
+    ok, frame = reader.read()
+    reader.release()
+    assert ok, "recorded mp4 has no readable frame"
+    b, g, r = _center_bgr(frame)
+    assert g > 150 and r < 90 and b < 90, f"expected green target, got BGR=({b},{g},{r}) -- occlusion broke"
+
+
+@requires_wgc
+def test_wgc_record_tracks_source_changes(tmp_path):
+    # Recording must capture change over time, not N copies of one frame (a stale latest
+    # slot would pass every static-content test). Record on a worker thread while the main
+    # thread repaints the probe green -> blue (Tk is main-thread only); an early frame must
+    # be green and a late frame blue.
+    import threading
+
+    out = str(tmp_path / "dyn.mp4")
+    win = tk.Toplevel(_root())
+    win.title("wgc-dyn-6c2b")
+    win.geometry("300x300+380+320")
+    win.configure(bg="#00ff00")
+    for _ in range(20):
+        win.update()
+        time.sleep(0.01)
+    info = windows.resolve_target(title="wgc-dyn-6c2b")
+
+    result = {}
+
+    def worker():
+        try:
+            result["n"] = wgc_record.record_window(info.hwnd, out, fps=10, count=20)
+        except Exception as exc:  # surface on the main thread
+            result["err"] = exc
+
+    th = threading.Thread(target=worker)
+    th.start()
+    # Anchor the switch on recording actually starting (the writer creates the file on the
+    # first sampled frame), not on wall-clock -- WGC session startup can lag several
+    # seconds, and a fixed t0 switch could flip to blue before the first frame is sampled.
+    deadline = time.monotonic() + 8.0
+    while th.is_alive() and not os.path.exists(out) and time.monotonic() < deadline:
+        win.update()
+        time.sleep(0.01)
+    for _ in range(20):  # hold green so several green frames land first
+        win.update()
+        time.sleep(0.01)
+    win.configure(bg="#0000ff")  # switch to blue for the rest of the run
+    while th.is_alive():
+        win.update()
+        time.sleep(0.01)
+    th.join(timeout=10)
+    win.destroy()
+
+    assert "err" not in result, result.get("err")
+    reader = cv2.VideoCapture(out)
+    frames = []
+    while True:
+        ok, f = reader.read()
+        if not ok:
+            break
+        frames.append(f)
+    reader.release()
+    assert len(frames) >= 6
+
+    def center(f):
+        return [int(v) for v in f[f.shape[0] // 2, f.shape[1] // 2]]  # BGR
+
+    b0, g0, r0 = center(frames[0])
+    bN, gN, rN = center(frames[-1])
+    assert g0 > 150 and b0 < 100, f"early frame not green: BGR=({b0},{g0},{r0})"
+    assert bN > 150 and gN < 100, f"late frame not blue: BGR=({bN},{gN},{rN}) -- pipeline froze on one frame"
+
+
+def test_record_dispatch_uses_wgc_when_available(tmp_path, monkeypatch):
+    # main() must route --record to the WGC backend with the RESOLVED hwnd (not a title
+    # re-match) and the --loop value as fps. Faked so it runs without a real WGC session.
+    calls = {}
+
+    def fake_record(hwnd, out_path, *, fps, duration, count, region):
+        calls.update(hwnd=hwnd, fps=fps, region=region)
+        Path(out_path).write_bytes(b"stub")
+        return 7
+
+    monkeypatch.setattr(wgc_record, "available", lambda: True)
+    monkeypatch.setattr(wgc_record, "record_window", fake_record)
+    out = str(tmp_path / "d.mp4")
+    with probe_window("#123456", "wgc-dispatch-3a1f") as (_w, info):
+        rc = capture.main(["--hwnd", str(info.hwnd), "--loop", "12", "--record", out])
+    assert rc == 0
+    assert calls == {"hwnd": info.hwnd, "fps": 12.0, "region": None}
+
+
+def test_record_falls_back_to_mp4v_when_wgc_unavailable(tmp_path, monkeypatch, capsys):
+    # With the WGC backend absent, --record must still record via the PrintWindow+mp4v
+    # path and say so -- no silent failure, no crash.
+    monkeypatch.setattr(wgc_record, "available", lambda: False)
+    out = str(tmp_path / "fb.mp4")
+    with probe_window("#654321", "wgc-fallback-9c2e") as (_w, info):
+        rc = capture.main(
+            ["--hwnd", str(info.hwnd), "--loop", "15", "--record", out, "--count", "4"]
+        )
+    assert rc == 0
+    assert Path(out).exists(), "mp4v fallback did not record"
+    assert "windows-capture not installed" in capsys.readouterr().err
+
+
+def test_record_minimized_refused_with_exit_3(tmp_path, monkeypatch):
+    # A minimized target is refused before any capture starts (WGC can't composite it).
+    monkeypatch.setattr(wgc_record, "available", lambda: True)
+    monkeypatch.setattr(
+        wgc_record, "record_window",
+        lambda *a, **k: pytest.fail("record_window ran on a minimized target"),
+    )
+    out = str(tmp_path / "m.mp4")
+    with probe_window("#222222", "wgc-min-7b3d") as (win, info):
+        win.iconify()
+        for _ in range(20):
+            win.update()
+            time.sleep(0.01)
+        rc = capture.main(["--hwnd", str(info.hwnd), "--loop", "10", "--record", out])
+    assert rc == 3
+
+
+@requires_wgc
+def test_wgc_record_region_crops_output(tmp_path):
+    # --region must crop the recorded frames (and the contiguous _crop path must feed
+    # VideoWriter correctly): the mp4 dimensions equal the requested region, not the window.
+    out = str(tmp_path / "reg.mp4")
+    with probe_window("#3377bb", "wgc-region-2d5f", size="300x300+360+300") as (_w, info):
+        n = wgc_record.record_window(info.hwnd, out, fps=10, count=4, region=(0, 0, 200, 150))
+    assert n >= 1
+    reader = cv2.VideoCapture(out)
+    w = int(reader.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(reader.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    reader.release()
+    assert (w, h) == (200, 150)
+
+
+def test_wgc_record_unavailable_raises(tmp_path, monkeypatch):
+    # A missing .venv-wgc must raise WgcUnavailable (so capture.py falls back to mp4v),
+    # not crash. Needs no real backend.
+    monkeypatch.setattr(wgc_record, "_wgc_python", lambda: str(tmp_path / "nope" / "python.exe"))
+    with pytest.raises(wgc_record.WgcUnavailable):
+        wgc_record.record_window(0, str(tmp_path / "x.mp4"), fps=10, count=5)
+
+
+def test_wgc_record_worker_error_unlinks_partial(tmp_path, monkeypatch):
+    # A failed/killed worker must not leave a corrupt mp4 at the output path: the shim
+    # surfaces the worker's error AND deletes any partial file. Uses a fake worker so it
+    # runs without windows-capture.
+    fake = tmp_path / "fake_worker.py"
+    fake.write_text("import json,sys; print(json.dumps({'error': 'synthetic boom'})); sys.exit(1)")
+    out = tmp_path / "partial.mp4"
+    out.write_bytes(b"corrupt-partial-bytes")  # simulate a half-written file
+    monkeypatch.setattr(wgc_record, "_wgc_python", lambda: sys.executable)
+    monkeypatch.setattr(wgc_record, "_worker", lambda: str(fake))
+    with pytest.raises(wgc_record.WgcError, match="synthetic boom"):
+        wgc_record.record_window(123, str(out), fps=10, count=5)
+    assert not out.exists(), "shim must delete the partial output on worker error"
+
+
+def test_wgc_available_false_when_import_broken(monkeypatch):
+    # available() must probe that windows-capture imports, not just that the interpreter
+    # exists: a present-but-broken venv is unavailable so capture.py falls back to mp4v.
+    # The core interpreter (no windows-capture) stands in for a broken venv.
+    monkeypatch.setattr(wgc_record, "_available", None)  # bypass the memo
+    monkeypatch.setattr(wgc_record, "_wgc_python", lambda: sys.executable)
+    assert wgc_record.available() is False
+
+
 def test_capture_stream_count_zero_yields_nothing():
     # The bound is checked before capturing, so count=0 produces no frames (a
     # post-yield check would leak exactly one).

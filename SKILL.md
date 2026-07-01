@@ -74,14 +74,35 @@ python ~/.claude/skills/capture/scripts/capture.py [options]
 | `--loop FPS` | stream a **non-minimized** window at ~FPS frames/sec (focus-safe) |
 | `--count N` | stop after N frames (default 30, unless `--duration` is given) |
 | `--duration S` | stop after S seconds |
-| `--record PATH` | record the stream to a real-time mp4 at the --loop fps (duplicates frames to stay real-time when capture can't keep up) |
+| `--record PATH` | record a real-time mp4 at the --loop fps; **WGC backend** if installed (occlusion-safe GPU capture at paint-rate), else PrintWindow + mp4v |
 
-Streaming only works on a non-minimized window (it never moves or activates it). A
-minimized target is refused — restore it first. Throughput is PrintWindow-bound and
-size-dependent (~15 fps for a ~2000×2000 window, faster for smaller ones); if the
-requested fps exceeds that, `--record` pads with duplicate frames so the mp4 still
-plays in real time. `--record` requires `--loop` and cannot be combined with
-`--out`/`--no-save`.
+Streaming and `--record` only work on a non-minimized window (it is never moved or
+activated). A minimized target is refused — restore it first. `--record` requires
+`--loop` (which sets the recording fps) and cannot be combined with `--out`/`--no-save`.
+
+`--record` prefers the **WGC backend** (`windows-capture`, optional — see below): it reads
+the window's own DWM compositor surface, so an occluded window still records, capturing on
+the GPU at the window's paint rate instead of PrintWindow's ~15 fps ceiling on a large
+window. Frames are sampled at `--loop` fps and encoded to mp4 (mp4v), so the video plays in
+real time whatever the window's paint activity. Without `windows-capture` installed,
+`--record` falls back to the PrintWindow path (frames streamed into mp4v, ~15 fps ceiling
+for a ~2000×2000 window, padded to real time). The plain `--loop` stream (no `--record`)
+always uses PrintWindow and is focus-safe.
+
+The WGC backend runs in a **separate venv** (`.venv-wgc/`), like OCR, so `windows-capture`
+never touches the core interpreter. Set it up once:
+
+```
+py -3.14 -m venv .venv-wgc
+.venv-wgc/Scripts/python -m pip install -r requirements-wgc.txt
+```
+
+It is not pulled by the core `requirements.txt`; recording works without it (mp4v fallback),
+and only `--record` shells out to the worker in that venv.
+
+`--region` under the WGC backend crops the WGC frame, whose size can differ slightly from a
+PrintWindow still of the same window (WGC excludes the resize border), so a region calibrated
+against a still may shift a few pixels when recorded.
 
 ### Text extraction (OCR, optional)
 

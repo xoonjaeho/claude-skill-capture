@@ -1,0 +1,8 @@
+# Optional high-fidelity recording backend (Windows.Graphics.Capture).
+# Installed into a DEDICATED venv (.venv-wgc), never the core interpreter -- keeps the
+# core dependency-light, the same isolation the OCR worker uses. Set up once:
+#   py -3.14 -m venv .venv-wgc
+#   .venv-wgc/Scripts/python -m pip install -r requirements-wgc.txt
+# The core skill works without it -- `--record` falls back to PrintWindow + mp4v, and only
+# `--record` shells out to the worker. 2.0 is the first release exposing window_hwnd.
+windows-capture>=2.0
