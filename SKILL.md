@@ -1,6 +1,6 @@
 ---
 name: capture
-description: Capture any Windows window to a PNG and/or an OpenCV BGR ndarray, even when the window is occluded behind other windows or minimized — focus-safe (nothing is moved or activated). Capturing a minimized window is opt-in because un-minimizing it briefly changes the foreground window. Use when the user wants to screenshot or grab a specific application window (editor, tool, dev build) for inspection, diffing, or OpenCV processing. Windows only; needs pywin32 + numpy + opencv-python on Python 3.14.
+description: Capture a specific Windows window to a PNG and/or an OpenCV BGR ndarray, even when it is occluded or minimized, without stealing focus. Use when the user wants to screenshot or grab an application window for inspection, diffing or OpenCV processing. Windows only.
 ---
 
 # /capture — per-window screen capture (occluded & minimized)
