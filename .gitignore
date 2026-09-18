@@ -32,3 +32,8 @@ scripts/ocr_models/
 # Local-only docs - synced scaffolds (.claude/rules/) and internal docs, never committed
 /.claude/
 /docs/
+
+# >>> scaffolds >>>
+# Serena MCP writes this on project activation
+.serena/
+# <<< scaffolds <<<
